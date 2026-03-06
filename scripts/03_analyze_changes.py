@@ -174,6 +174,32 @@ def analyze_from_popular(rsc_text: str, tier12: dict, stocks: dict):
                         lst.append(label)
 
 
+def calc_guru_avg_price(new_price_refs: list) -> dict | None:
+    """
+    복수 구루가 동일 종목을 신규매수한 경우 주수 가중평균 분기말 기준가를 계산합니다.
+
+    가중평균 공식:
+        guru_avg_q_end_price = Σ(shares_i × q_end_price_i) / Σ(shares_i)
+
+    주의: q_end_price 자체가 실제 매수단가가 아닌 분기말 시가 근사값이므로
+          이 평균도 "구루들이 보유 시작한 시점의 기준 가격대" 정도로 해석합니다.
+    """
+    refs = [p for p in new_price_refs if p.get("shares", 0) > 0 and p.get("q_end_price", 0) > 0]
+    if not refs:
+        return None
+
+    total_shares = sum(p["shares"] for p in refs)
+    weighted_price = sum(p["shares"] * p["q_end_price"] for p in refs) / total_shares
+    total_amount = sum(p["amount_usd"] for p in refs)
+
+    return {
+        "guru_avg_q_end_price": round(weighted_price, 2),
+        "total_new_shares": total_shares,
+        "total_new_amount_usd": total_amount,
+        "buyers_count": len(refs),
+    }
+
+
 def score_stocks(stocks: dict) -> list:
     """
     신호 강도 계산:
@@ -190,6 +216,9 @@ def score_stocks(stocks: dict) -> list:
         if score == 0:
             continue
 
+        price_refs = s.get("new_price_refs", [])
+        guru_price_summary = calc_guru_avg_price(price_refs)
+
         ranked.append({
             "sym": s["sym"],
             "name": s["name"],
@@ -199,9 +228,10 @@ def score_stocks(stocks: dict) -> list:
             "tier1_inc": s["tier1_inc"],
             "tier2_new": s["tier2_new"],
             "tier2_inc": s["tier2_inc"],
-            # 신규매수 종목의 분기말 기준가 (실제 매수가 ≠, 단순 Q-end 시가 근사값)
-            # 비중확대 종목은 기존 보유분 가격변동 포함으로 계산 불가
-            "new_price_refs": s.get("new_price_refs", []),
+            # 개별 구루 신규매수 기준가 (실제 매수단가 ≠, Q4 말일 시가 근사값)
+            "new_price_refs": price_refs,
+            # 복수 구루 가중평균 기준가 (신규매수 구루가 2명 이상일 때 의미 있음)
+            "guru_price_summary": guru_price_summary,
             "sources": list(s.get("sources", [])),
         })
 
