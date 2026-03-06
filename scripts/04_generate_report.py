@@ -79,6 +79,23 @@ def generate_report(year: str, quarter: str, stocks: list) -> str:
             f"| 🟠 티어2 비중확대 | {format_investor_list(s['tier2_inc'])} |",
             f"",
         ]
+        # 신규매수 종목의 분기말 기준가 표시
+        price_refs = s.get("new_price_refs", [])
+        if price_refs:
+            lines += [
+                f"**분기말 기준가** *(신규매수만 표시. 실제 평균 매수단가 ≠, Q4 말일 시가 기준)*",
+                f"",
+                f"| 투자자 | 매수 주수 | 투자금액 | 분기말 기준가 |",
+                f"|---|---|---|---|",
+            ]
+            for p in price_refs:
+                amt = p['amount_usd'] / 1e6
+                lines.append(
+                    f"| {p['investor']} | {p['shares']:,}주 | ~${amt:.1f}M | **${p['q_end_price']:,.2f}** |"
+                )
+            lines.append(f"")
+            lines.append(f"> 현재가와 비교해 매수가 대비 상승/하락폭을 판단하세요.")
+            lines.append(f"")
 
     lines += [
         f"---",

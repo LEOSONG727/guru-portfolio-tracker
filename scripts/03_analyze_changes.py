@@ -63,6 +63,7 @@ def analyze_from_investors(investors: list, tier12: dict) -> dict:
     stocks = defaultdict(lambda: {"sym": "", "name": "", "cusip": "",
                                    "tier1_new": [], "tier1_inc": [],
                                    "tier2_new": [], "tier2_inc": [],
+                                   "new_price_refs": [],
                                    "sources": set()})
 
     for inv in investors:
@@ -89,6 +90,21 @@ def analyze_from_investors(investors: list, tier12: dict) -> dict:
                     s["tier1_new"].append(label)
                 else:
                     s["tier2_new"].append(label)
+                # 신규매수만 implied price 계산 (비중확대는 기존 보유분 가격변동 포함으로 무의미)
+                shrc = buy.get("shrChg", 0)
+                valc = buy.get("valChg", 0)
+                if shrc and valc:
+                    implied = valc / shrc
+                    if 0 < implied < 1:   # 단위가 천달러인 경우 정규화
+                        implied *= 1000
+                        valc *= 1000
+                    if 1 < implied < 5000:  # 이상값 제외 (옵션 등)
+                        s["new_price_refs"].append({
+                            "investor": label,
+                            "shares": abs(shrc),
+                            "amount_usd": abs(int(valc)),
+                            "q_end_price": round(implied, 2),
+                        })
             elif act in ("increased", "INC", "inc"):
                 if tier == 1:
                     s["tier1_inc"].append(label)
@@ -116,6 +132,7 @@ def analyze_from_popular(rsc_text: str, tier12: dict, stocks: dict):
                 stocks[key] = {"sym": sym, "name": name, "cusip": cusip,
                                "tier1_new": [], "tier1_inc": [],
                                "tier2_new": [], "tier2_inc": [],
+                               "new_price_refs": [],
                                "sources": set()}
 
             s = stocks[key]
@@ -134,6 +151,23 @@ def analyze_from_popular(rsc_text: str, tier12: dict, stocks: dict):
                     lst = s["tier1_new"] if tier == 1 else s["tier2_new"]
                     if label not in lst:
                         lst.append(label)
+                    # topH에서 신규매수 implied price 보강
+                    shrc = holder.get("shrChg", 0)
+                    valc = holder.get("valChg", 0)
+                    if shrc and valc:
+                        implied = valc / shrc
+                        if 0 < implied < 1:
+                            implied *= 1000
+                            valc *= 1000
+                        if 1 < implied < 5000:
+                            existing = [p for p in s["new_price_refs"] if p["investor"] == label]
+                            if not existing:
+                                s["new_price_refs"].append({
+                                    "investor": label,
+                                    "shares": abs(int(shrc)),
+                                    "amount_usd": abs(int(valc)),
+                                    "q_end_price": round(implied, 2),
+                                })
                 elif act in ("increased", "INC", "inc"):
                     lst = s["tier1_inc"] if tier == 1 else s["tier2_inc"]
                     if label not in lst:
@@ -165,6 +199,9 @@ def score_stocks(stocks: dict) -> list:
             "tier1_inc": s["tier1_inc"],
             "tier2_new": s["tier2_new"],
             "tier2_inc": s["tier2_inc"],
+            # 신규매수 종목의 분기말 기준가 (실제 매수가 ≠, 단순 Q-end 시가 근사값)
+            # 비중확대 종목은 기존 보유분 가격변동 포함으로 계산 불가
+            "new_price_refs": s.get("new_price_refs", []),
             "sources": list(s.get("sources", [])),
         })
 
